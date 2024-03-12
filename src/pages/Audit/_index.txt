@@ -1,0 +1,115 @@
+import { FC, useRef, useState } from 'react'
+import {
+  Account,
+  Address,
+  EncryptedMessage,
+  KeyGenerator,
+  MetadataSearchCriteria,
+  PublicAccount,
+  RepositoryFactoryHttp
+} from 'symbol-sdk'
+import { Config } from '../../utils/Config'
+import { collection, getDocs, query } from '@firebase/firestore'
+import { db, storage } from '../../utils/Firebase'
+// import { ApostilleFacade, HashType } from '@sss-symbol/apostille'
+import axios from 'axios'
+import { getDownloadURL, ref } from '@firebase/storage'
+import { Stage, Layer, Image as KImage } from 'react-konva'
+import Konva from 'konva'
+import base64url from 'base64url'
+
+const Page: FC = () => {
+  const [img, setImg] = useState('')
+  const [imageFile, setImageFile] = useState(new Image())
+  const [hankoImage, setHankoImage] = useState(new Image())
+  const [stampedImage, setStampedImg] = useState(new Image())
+  const stageRef = useRef<Konva.Stage>(null)
+  const hankoRef = useRef<Konva.Stage>(null)
+
+  const audit = async () => {
+    const pub =
+      'F4EBA21A9E13C35719A9C03F0F0E6EA4F79F48C3424C389E6E801C6EF53EED41'
+    const apoAcc =
+      '0DC1EC5498C5F27534BC4389223B9C76AF471F101EF608DC50EB258C20FD2C1E'
+    const address = Address.createFromPublicKey(apoAcc, Config.networkType)
+    // await sleep()
+    // const NODE = Config.nodeUrl
+    // const info = await ApostilleFacade.getNetworkInfomation(NODE)
+    // const facade = new ApostilleFacade(HashType.SHA256, info)
+
+    const repo = new RepositoryFactoryHttp(Config.nodeUrl)
+
+    const key = KeyGenerator.generateUInt64Key(pub).toHex()
+
+    console.log(key)
+
+    const metaRepo = repo.createMetadataRepository()
+    const mdInfo: MetadataSearchCriteria = {
+      sourceAddress: address,
+      scopedMetadataKey: KeyGenerator.generateUInt64Key(pub).toHex()
+    }
+    const md = await metaRepo.search(mdInfo).toPromise()
+
+    if (md === undefined) return
+
+    const metadata = md.data[0]
+
+    console.log(metadata)
+
+    const snapShot = query(
+      collection(db, `/apostille/files/${metadata.metadataEntry.value}`)
+    )
+
+    const docSnaps = await getDocs(snapShot)
+    const data = docSnaps.docs.map((doc) => doc.data())[0]
+
+    console.log(data)
+
+    const payload = data.stamped
+    const sender = data.sender
+
+    // const fileRef = ref(storage, `gs://${Config.storage}/files/${apoAcc}`)
+    // const url = await getDownloadURL(fileRef)
+
+    // const res = await axios.get(url)
+    // const file = new File([res.data], pub)
+    // const arrayBuffer = await file.arrayBuffer()
+    // const str = base64url.encode(Buffer.from(arrayBuffer))
+    // console.log(str)
+
+    // const image = new Image()
+    // // image.src = btoa(str)
+
+    // setImageFile(image)
+
+    const receipient =
+      '6F19F64CAB6212631B1C7AACDEE0F945680A111B3074A70AEEB97885129E9CE1'
+    const acc = Account.createFromPrivateKey(receipient, Config.networkType)
+    const senderAcc = PublicAccount.createFromPublicKey(
+      sender,
+      Config.networkType
+    )
+    const msg = new EncryptedMessage(payload, senderAcc)
+    const tmp = acc.decryptMessage(msg, senderAcc)
+    setImg(tmp.payload)
+
+    console.log(tmp.payload)
+    const hImg = new Image()
+    hImg.src = tmp.payload
+    setHankoImage(hImg)
+  }
+
+  return (
+    <div>
+      AUDIT
+      <button onClick={audit}>AUDIT</button>
+      <img src={hankoImage.src} />
+    </div>
+  )
+}
+
+export default Page
+
+// const sleep = async () => {
+//   return new Promise((resolve) => setTimeout(resolve, 1000))
+// }

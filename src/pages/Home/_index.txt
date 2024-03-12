@@ -1,0 +1,173 @@
+import { FC, useRef, useState } from 'react'
+import { Stage, Layer, Image as KImage } from 'react-konva'
+import { ApostilleFacade, HashType } from '@sss-symbol/apostille'
+import { Config } from '../../utils/Config'
+import Konva from 'konva'
+import {
+  getActivePublicKey,
+  requestSignEncription,
+  requestSignWithCosignatories,
+  setMessage,
+  setTransaction
+} from 'sss-module'
+import { RepositoryFactoryHttp } from 'symbol-sdk'
+import { sha256 } from 'js-sha256'
+import { db } from '../../utils/Firebase'
+import { collection, doc, setDoc } from '@firebase/firestore'
+
+const Page: FC = () => {
+  const [file, setFile] = useState<File>(new File([], ''))
+  const [fileImage, setFileImage] = useState<HTMLImageElement>(new Image())
+  const [hankoFileImage, setHankoFileImage] = useState<HTMLImageElement>(
+    new Image()
+  )
+  const [positionX, setPositionX] = useState(0)
+  const [positionY, setPositionY] = useState(0)
+  const [address, setAddress] = useState('')
+  const stageRef = useRef<Konva.Stage>(null)
+  const imageRef = useRef<Konva.Stage>(null)
+
+  const addFile = (f: FileList | File[] | null) => {
+    if (!f) return
+    for (let i = 0; i === 0; i++) {
+      if (i === 0) {
+        setFile(f[i])
+        const img = new Image()
+        img.src = URL.createObjectURL(f[i])
+        setFileImage(img)
+      }
+    }
+  }
+  const setHanko = (f: FileList | File[] | null) => {
+    if (!f) return
+    for (let i = 0; i === 0; i++) {
+      if (i === 0) {
+        // setHankoFile(f[i])
+        const img = new Image()
+        img.src = URL.createObjectURL(f[i])
+        setHankoFileImage(img)
+      }
+    }
+  }
+
+  const save = async () => {
+    if (imageRef.current === null || stageRef.current === null) return
+    const data = imageRef.current.toDataURL()
+    const stampedData = stageRef.current.toDataURL()
+    const NODE = Config.nodeUrl
+    const info = await ApostilleFacade.getNetworkInfomation(NODE)
+
+    setMessage(stampedData, address)
+
+    const msg = await requestSignEncription()
+
+    await sleep()
+
+    const hash = sha256.update(msg.payload).hex()
+    const option = {
+      metadata: {
+        // X: String(positionX),
+        // Y: String(positionY),
+        [address]: hash
+      },
+      isOwner: false
+    }
+
+    const facade = new ApostilleFacade(HashType.SHA256, info)
+    const userPublicKey = getActivePublicKey()
+
+    const apostilleTransaction = facade.createApostille(
+      data,
+      file.name,
+      userPublicKey,
+      option
+    )
+    const transaction = apostilleTransaction.createTransaction()
+    const cosignatories = apostilleTransaction.getCosignatories()
+
+    setTransaction(transaction)
+
+    const signedTx = await requestSignWithCosignatories(cosignatories)
+    const repo = new RepositoryFactoryHttp(Config.nodeUrl)
+    const txRepo = repo.createTransactionRepository()
+    await txRepo.announce(signedTx).toPromise()
+
+    // const key = apostilleTransaction.apostilleAccount.account.publicKey
+    // const uploadFileRef = ref(storage, `/files/${key}`)
+    // const uploadStampedFileRef = ref(storage, `/stamped/${key}`)
+    // await uploadBytesResumable(uploadFileRef, file, {
+    //   cacheControl: 'public,max-age=900'
+    // })
+    // await uploadBytesResumable(uploadFileRef, file, {
+    //   cacheControl: 'public,max-age=900'
+    // })
+
+    const fileRef = doc(collection(db, `/apostille/files/${hash}`))
+    setDoc(fileRef, {
+      file: data,
+      stamped: msg.payload,
+      sender: getActivePublicKey()
+    })
+  }
+
+  const setX = (x: string) => {
+    setPositionX(Number(x))
+  }
+  const setY = (y: string) => {
+    setPositionY(Number(y))
+  }
+
+  return (
+    <div>
+      <div>X</div>
+      <input type="number" onChange={(e) => setX(e.target.value)} />
+      <div>Y</div>
+      <input type="number" onChange={(e) => setY(e.target.value)} />
+      <div>IMAGE</div>
+      <input
+        type="file"
+        accept="image/png, image/jpeg, image/svg"
+        onChange={(e) => addFile(e.target.files)}
+      />
+      <div>HANKO</div>
+      <input
+        type="file"
+        accept="image/png, image/jpeg, image/svg"
+        onChange={(e) => setHanko(e.target.files)}
+      />
+
+      <div>PublicKey</div>
+      <input onChange={(e) => setAddress(e.target.value)} />
+      <div>
+        <button onClick={save}>SAVE</button>
+      </div>
+      <Stage width={fileImage.width} height={fileImage.height} ref={stageRef}>
+        <Layer>
+          <KImage
+            image={fileImage}
+            width={fileImage.width}
+            height={fileImage.height}
+          />
+        </Layer>
+        <Layer x={positionX} y={positionY}>
+          <KImage image={hankoFileImage} width={50} height={50} />
+        </Layer>
+      </Stage>
+      <Stage width={fileImage.width} height={fileImage.height} ref={imageRef}>
+        <Layer>
+          <KImage
+            image={fileImage}
+            width={fileImage.width}
+            height={fileImage.height}
+          />
+        </Layer>
+      </Stage>
+    </div>
+  )
+}
+
+export default Page
+
+const sleep = async () => {
+  return new Promise((resolve) => setTimeout(resolve, 1000))
+}
